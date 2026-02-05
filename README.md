@@ -1,93 +1,53 @@
 # Desafio de Data Engineer - IPLANRIO
-
 Repositório de instrução para o desafio técnico para vaga de Pessoa Engenheira de Dados.
 
 ## Descrição do desafio
 
-Neste desafio, você deverá desenvolver uma pipeline de ELT capaz de capturar, armazenar e transformar dados provenientes de uma API em tempo real.
-A API disponibiliza informações de GPS dos veículos do BRT, retornando, a cada consulta, o último sinal transmitido por cada veículo ativo.
+Neste desafio você deverá capturar, estruturar, armazenar e transformar dados de Terceirizados de Órgãos Federais, disponíveis no site [Dados Abertos - Terceirizados de Órgãos Federais](https://www.gov.br/cgu/pt-br/acesso-a-informacao/dados-abertos/arquivos/terceirizados).
 
-O objetivo é construir uma solução que capture os dados minuto a minuto, gere um único arquivo CSV contendo 10 minutos de dados, armazene-o no Google Cloud Storage (GCS), e disponibilize os dados no BigQuery por meio de uma tabela externa e de uma view transformada.
+Para o desafio, será necessário construir uma pipeline que realiza a extração, processamento e transformação dos dados. Salve os dados de cada mes em um arquivo CSV (estruture os dados da maneira que achar mais conveniente, você tem liberdade para criar novas colunas ou particionar os dados), então carregue os dados para uma tabela no Postgres. Por fim, crie uma tabela derivada usando o DBT. A tabela derivada deverá seguir a padronização especificada no [manual de estilo da IPLANRIO](https://docs.dados.rio/data-lake/guia-de-estilo/convencoes-colunas). A solução devera contemplar o surgimento de novos dados a cada 4 meses.
 
-A solução deve seguir a arquitetura Medallion (Bronze → Silver → Gold).
-A pipeline deverá ser construída subindo uma instância local do Prefect (em Python). Utilize a versão *1.4.1* do Prefect.
-
-Passos adicionais e aprimoramentos são bem-vindos e estão descritos na seção [Etapas](#etapas)
 
 ## O que iremos avaliar
 
-- Completude: A solução proposta atende a todos os requisitos do desafio?
-- Simplicidade: A solução proposta é simples e direta? É fácil de entender e trabalhar?
-- Organização: A solução proposta é organizada e bem documentada? É fácil de navegar e encontrar o que se procura?
-- Criatividade: A solução proposta é criativa? Apresenta uma abordagem inovadora para o problema proposto?
-- Arquitetura: A solução proposta implementa a arquitetura Medallion corretamente?
-- Boas práticas: A solução proposta segue boas práticas de Python, Git, Docker, etc.?
-
-## Atenção
-
-- A solução do desafio deve estar num repositório público do Github  
-- O código enviado será testado localmente, portanto organize e documente todas as etapas do projeto.
-- O Google Cloud Platform oferece camada grauita para os serviços utilizados no desafio. Leia atentamente a documentação para evitar cobranças indesejadas.
-- Caso avance para a próxima etapa, você deverá apresentar sua solução, explicando suas decisões técnicas.
+- **Completude**: A solução proposta atende a todos os requisitos do desafio?
+- **Simplicidade**: A solução proposta é simples e direta? É fácil de entender e trabalhar?
+- **Organização**: A solução proposta é organizada e bem documentada? É fácil de navegar e encontrar o que se procura?
+- **Criatividade**: A solução proposta é criativa? Apresenta uma abordagem inovadora para o problema proposto?
+- **Boas práticas**: A solução proposta segue boas práticas de Python, Git, Docker, etc.?
 
 ## Etapas
 
-1. Instalar e configurar o Prefect Server locamente com um Docker Agent
-2. Construir a pipeline de captura da API do BRT com os dados minuto a minuto
-3. Gerar um arquivo CSV contendo 10 minutos de dados capturados e enviá-lo ao Google Cloud Storage (GCS).
-4. Criar uma tabela externa no BigQuery utilizando o DBT (instale o pacote o `dbt_external_tables`)
-5. Particionar tabela gerada da forma que achar mais conveniente
-6. Criar view no Google BigQuery a partir da tabela externa, aplicando as transformações necessárias
+1. Subir o ambiente local com docker compose.
+2. Construir pipeline de ingestão.
+3. Persistir os dados mensais em CSVs particionados.
+4. Carregar os dados no Postgres (tabela raw/staging).
+5. Criar tabela derivada via dbt, aplicando a padronização de colunas conforme o guia da IPLANRIO.
+6. Prever o surgimento de novos dados a cada ~4 meses (idempotência, reprocessamento incremental, detecção de novidades).
 
 ## Extras
-1. Commits seguindo o padrão Conventional Commits
-2. Arquivos .yml contendo descrições detalhadas de cada modelo e campo e propagação automática para o BigQuery
-3. Testes de qualidade de dados no DBT
-4. Estrutura de pastas e código organizada e legível
-5. Instruções claras de execução no README.md
 
-## Entregáveis esperados
+- Commits seguindo o padrão Conventional Commits
+- Arquivos .yml contendo descrições detalhadas de cada modelo e campo.
+- Testes de qualidade de dados no DBT
+- Estrutura de pastas e código organizada e legível
+- Instruções claras de execução no README.md
 
-O repositório público no GitHub deve conter:
+## 🚨 Atenção
 
-### 1. Pipeline Prefect
-- Código completo com **tasks** e **flows** responsáveis por:  
-  - Captura de dados da API minuto a minuto  
-  - Geração e envio do arquivo CSV para o GCS  
-  - Execução dos modelos DBT dentro da pipeline (tabela externa e transformações)
-
-### 2. Projeto DBT
-- Modelos e `schema.yml` devidamente configurados  
-- Descrições detalhadas de tabelas e campos, com **propagação automática para o BigQuery** (`+persist_docs`)
-
-### 3. CSV de exemplo
-- Arquivo gerado ou instruções claras de como reproduzir o CSV
-
-### 4. Documentação
-- `README.md` com instruções para:  
-  - Iniciar o Prefect Server e Docker Agent localmente  
-  - Executar o flow principal
-
-### 5. Configuração de ambiente
-- Nome do bucket GCS utilizado ou instruções para apontar para um bucket local
-
-### 6. (Opcional)
-- Capturas de tela do BigQuery mostrando:  
-  - Tabela externa criada  
-  - Descrições das colunas persistidas a partir do DBT
+- A solução desse desafio deve ser publicada em um fork deste repositório no GitHub.
+- O link do repositório deve ser enviado, para o e-mail utilizado para contato com o assunto "Desafio Data Engineer - IPLANRIO".
+- Você deve ser capaz de apresentar sua solução, explicando como a idealizou, caso seja aprovado(a) para a próxima etapa.
 
 ## Links de referência / utilidades
 
-- [Google Cloud Platform - Nível gratuito](https://cloud.google.com/free?hl=pt-br)
-- [Documentação Prefect v1](https://docs-v1.prefect.io/)
-- [Documentação DBT](https://docs.getdbt.com/docs/introduction)
-- [Instalar e configurar o Prefect Server](https://docs-v1.prefect.io/orchestration/getting-started/install.html)
-- [Docker Agent - Prefect](https://docs-v1.prefect.io/orchestration/agents/docker.html)
-- [API do BRT](https://www.data.rio/documents/PCRJ::transporte-rodovi%C3%A1rio-api-de-gps-do-brt/about?path=)
-- [Conventional Commits](https://www.conventionalcommits.org/pt-br/v1.0.0/)
-- [Pipelines rj-iplanrio](https://github.com/prefeitura-rio/pipelines_rj_iplanrio/)
-
+- Documentação [Prefect](https://docs.prefect.io/v3/get-started)
+- Documentação [DBT](https://docs.getdbt.com/docs/introduction)
+- [Dados Abertos - Terceirizados de Órgãos Federais](https://www.gov.br/cgu/pt-br/acesso-a-informacao/dados-abertos/arquivos/terceirizados)
+- Repositório pipelines da [IPLANRIO](https://github.com/prefeitura-rio/pipelines)
+- Repositório de modelos DBT da [IPLANRIO](https://github.com/prefeitura-rio/queries-rj-iplanrio)
+- [Manual de estilo da IPLANRIO](https://docs.dados.rio/data-lake/guia-de-estilo/convencoes-datasets-e-tabelas)
+  
 ## Dúvidas?
 
 Fale conosco pelo e-mail que foi utilizado para o envio desse desafio.
-
