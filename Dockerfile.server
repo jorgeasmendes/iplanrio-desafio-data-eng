@@ -1,0 +1,3 @@
+FROM prefecthq/prefect:sha-9b50ae1-python3.12
+
+RUN apt-get update && apt-get install -y curl

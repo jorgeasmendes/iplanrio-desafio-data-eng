@@ -1,0 +1,7 @@
+FROM prefecthq/prefect:sha-9b50ae1-python3.12
+
+WORKDIR /app
+
+COPY flows/ /app/flows/
+
+ENV PYTHONPATH=/app
