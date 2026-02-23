@@ -1,0 +1,6 @@
+sources:
+  - name: raw
+    tables:
+      - name: terceirizados_raw
+        config:
+          external_location: "s3://{{ env_var('BUCKET_NAME') }}/terceirizados/raw/*/*.parquet"

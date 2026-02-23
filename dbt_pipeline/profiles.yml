@@ -1,0 +1,14 @@
+dbt_pipeline:
+  outputs:
+    dev:
+      type: duckdb
+      path: local.duckdb
+      threads: 1
+      extensions: 
+        - httpfs
+      settings:
+        s3_region: "{{ env_var('AWS_REGION') }}"
+        s3_access_key_id: "{{ env_var('AWS_ACCESS_KEY_ID') }}"
+        s3_secret_access_key: "{{ env_var('AWS_SECRET_ACCESS_KEY') }}"
+
+  target: dev
