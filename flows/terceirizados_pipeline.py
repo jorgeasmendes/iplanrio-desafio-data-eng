@@ -1,5 +1,6 @@
 from prefect import flow, task
 from prefect.logging import get_run_logger
+from prefect_dbt import PrefectDbtRunner, PrefectDbtSettings
 import requests
 import re
 import os
@@ -38,9 +39,9 @@ def create_bucket():
     return
 
 @task
-def load():
+def load_raw_data():
     logger=get_run_logger()
-    logger.info(f"Iniciando task load_data...")
+    logger.info("Iniciando task load_raw_data...")
     encodings = ["utf-8", "latin-1", "utf-16"]
     new_data=[]
     url_base_dados="https://www.gov.br/cgu/pt-br/acesso-a-informacao/dados-abertos/arquivos/terceirizados"
@@ -135,12 +136,26 @@ def load():
         logger.info(f"Dados de {year_month} carregados com sucesso no bucket")
         new_data.append(year_month)
 
-    logger.info(f"Task load_data finalizada com sucesso")
+    logger.info(f"Task load_raw_data finalizada com sucesso")
     return new_data
+
+@task
+def dbt_run():
+    logger=get_run_logger()
+    logger.info("Iniciando task dbt_job...")
+    PrefectDbtRunner(
+        settings=PrefectDbtSettings(
+            project_dir="dbt_pipeline",
+            profiles_dir="dbt_pipeline"
+        )
+    ).invoke(["build"])
+    logger.info("Task dbt_job finalizada com sucesso")
+    return
 
 @flow
 def pipeline():
     logger=get_run_logger()
     bucket=create_bucket()
-    new_data=load(wait_for=[bucket])
+    new_data=load_raw_data(wait_for=[bucket])
+    dbt_result=dbt_run(wait_for=[new_data])
     logger.info("Flow concluído com sucesso")
