@@ -6,6 +6,7 @@ import re
 import os
 import boto3
 import duckdb
+from typing import List, Literal
 
 AWS_ACCESS_KEY_ID=os.environ.get('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY=os.environ.get('AWS_SECRET_ACCESS_KEY')
@@ -13,7 +14,9 @@ AWS_REGION=os.environ.get('AWS_REGION')
 BUCKET_NAME=os.environ.get('BUCKET_NAME')
 
 @task
-def create_bucket():
+def create_bucket(run: bool):
+    if not run:
+        return
     logger=get_run_logger()
     logger.info(f"Iniciando task create_bucket...")
     logger.info(f"Verificando existência e propriedade do bucket '{BUCKET_NAME}' na AWS S3")
@@ -39,25 +42,36 @@ def create_bucket():
     return
 
 @task
-def load_raw_data():
+def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str, 
+                    ano_fim_carga: str, mes_fim_carga: str):
+    if not run:
+        return
     logger=get_run_logger()
     logger.info("Iniciando task load_raw_data...")
     encodings = ["utf-8", "latin-1", "utf-16"]
     new_data=[]
-    url_base_dados="https://www.gov.br/cgu/pt-br/acesso-a-informacao/dados-abertos/arquivos/terceirizados"
         
     logger.info("Pesquisando os arquivos disponíveis para carga...")
+    url_base_dados="https://www.gov.br/cgu/pt-br/acesso-a-informacao/dados-abertos/arquivos/terceirizados"
     response = requests.get(url_base_dados)
     files=re.findall(rf'href=["\']?({url_base_dados}/arquivos/[^\s"\'>]+\.(csv|xlsx))["\']?', response.text)
 
-    logger.info(f"{len(files)} arquivos encontrados")
-
+    filtered_files=[]
     for file in files:
-        filetype=file[1]
+        yearmonth=file[0].replace('maio', '202505').replace('setembro', '202509')
+        file=(file[0], file[1], re.search(r'\d{6}', yearmonth).group())
+        init_month=int(ano_inicio_carga+mes_inicio_carga)
+        end_month=int(ano_fim_carga+mes_fim_carga)
+        if int(file[2])>=init_month and int(file[2])<=end_month:
+            filtered_files.append(file)
+    filtered_files = sorted(filtered_files, key=lambda x: int(x[2]))
+
+    logger.info(f"{len(filtered_files)} arquivos encontrados")
+
+    for file in filtered_files:
         link=file[0]
-        text=link.replace('maio', '202505').replace('setembro', '202509')
-        year_month=re.search(r'\d{6}', text).group()
-        year_month=f"{year_month[:4] + '-' + year_month[4:]}"
+        filetype=file[1]
+        year_month=file[2][:4] + '-' + file[2][4:]
         
         logger.info(f"Baixando arquivo de {year_month}:\n -Tipo do arquivo: {filetype}\n -Link: {link}")
         try:
@@ -136,26 +150,45 @@ def load_raw_data():
         logger.info(f"Dados de {year_month} carregados com sucesso no bucket")
         new_data.append(year_month)
 
-    logger.info(f"Task load_raw_data finalizada com sucesso")
-    return new_data
+    logger.info(f"Task load_raw_data finalizada com sucesso\nForam carregados dados dos meses: {new_data}")
+    return
 
 @task
-def dbt_run():
+def dbt_run(run: bool, comando_dbt: str):
+    if not run:
+        return
     logger=get_run_logger()
-    logger.info("Iniciando task dbt_job...")
+    logger.info(f"Iniciando task dbt_run...\nComando: dbt {comando_dbt}")
     PrefectDbtRunner(
         settings=PrefectDbtSettings(
             project_dir="dbt_pipeline",
             profiles_dir="dbt_pipeline"
         )
-    ).invoke(["build"])
-    logger.info("Task dbt_job finalizada com sucesso")
+    ).invoke([f"{comando_dbt}"])
+    logger.info("Task dbt_run finalizada com sucesso")
+    return
+
+@task
+def load_transformed_data(run: bool):
+    if not run:
+        return
+    logger=get_run_logger()
+    logger.info("Iniciando task load_transformed_data...")
+    logger.info("Task load_transformed_data finalizada com sucesso")
     return
 
 @flow
-def pipeline():
+def pipeline(tasks: List[Literal["Criar bucket", "Carregar dados brutos", "Rodar DBT"]] = ["Criar bucket", "Carregar dados brutos", "Rodar DBT"],
+             ano_inicio_carga: str="2019", mes_inicio_carga: Literal["01", "05", "09"]="01", 
+             ano_fim_carga: str="2050", mes_fim_carga: Literal["01", "05", "09"]="01",
+             comando_dbt: Literal["build", "run", "test"]="build"   
+             ):
     logger=get_run_logger()
-    bucket=create_bucket()
-    new_data=load_raw_data(wait_for=[bucket])
-    dbt_result=dbt_run(wait_for=[new_data])
+    bucket=create_bucket(run = "Criar bucket" in tasks)
+    new_data=load_raw_data(run = "Carregar dados brutos" in tasks, wait_for=[bucket],
+                           ano_inicio_carga=ano_inicio_carga, mes_inicio_carga=mes_inicio_carga,
+                           ano_fim_carga=ano_fim_carga, mes_fim_carga=mes_fim_carga)
+    dbt_result=dbt_run(run = "Rodar DBT" in tasks, wait_for=[new_data],
+                       comando_dbt=comando_dbt)
+    duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in tasks, wait_for=[dbt_result])
     logger.info("Flow concluído com sucesso")
