@@ -2,6 +2,9 @@ FROM prefecthq/prefect:sha-9b50ae1-python3.12
 
 WORKDIR /app
 
+RUN pip install duckdb boto3
+
 COPY flows/ /app/flows/
+COPY .env /app/.env
 
 ENV PYTHONPATH=/app
