@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Query, HTTPException
+from fastapi.responses import RedirectResponse
 import boto3
 import asyncio
 import os
@@ -10,7 +11,10 @@ AWS_REGION=os.environ.get('AWS_REGION')
 BUCKET_NAME=os.environ.get('BUCKET_NAME')
 DB_FILE = "local.duckdb"
 
-app = FastAPI()
+app = FastAPI(
+    title="API de consulta a dados de terceirizados do governo federal brasileiro",
+    description="API pública somente leitura para consulta de terceirizados."
+)
 
 def load_data():
     temp_file = "local.duckdb.tmp"
@@ -27,13 +31,27 @@ def load_data():
 async def startup_event():
     await asyncio.to_thread(load_data)
 
-@app.post("/admin/refresh")
+@app.post("/admin/refresh", 
+          summary="Atualizar os dados",
+          description="Baixa novamente os dados da camada gold no bucket S3")
 async def refresh_data():
     await asyncio.to_thread(load_data)
     return {"status": "dados carregados"}
 
-@app.get("/terceirizados")
-async def get_terceirizados(page_size: int = Query(50, le=200), page: int = Query(0, ge=0)):
+@app.get("/")
+async def redirect_to_docs():
+    return RedirectResponse(url="/redoc")
+
+@app.get("/terceirizados", 
+          summary="Listar todos os terceirizados",
+          description="""
+            Retorna lista paginada de terceirizados.
+
+            - Ordenação: crescente por `id_terc`
+            - Máximo de 200 registros por página
+            """)
+async def get_terceirizados(page_size: int = Query(50, le=200, description="Quantidade de registros por página (máx: 200)"), 
+                            page: int = Query(0, ge=0, description="Número da página (inicia em 0)")):
     def query():
         try:
             with duckdb.connect(DB_FILE) as con:
@@ -67,7 +85,9 @@ async def get_terceirizados(page_size: int = Query(50, le=200), page: int = Quer
     return {"total_rows": total, "page_size": page_size, 
             "page": page, "total_pages": (total+page_size-1)//page_size, "data": data}
 
-@app.get("/terceirizados/{id}")
+@app.get("/terceirizados/{id}", 
+          summary="Detalhes do terceirizado",
+          description="Mostra todos os dados referentes ao terceirizado com o id especificado")
 async def get_terceirizados_id(id: int):
     def query():
         try:
