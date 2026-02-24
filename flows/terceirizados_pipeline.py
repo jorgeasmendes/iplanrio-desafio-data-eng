@@ -175,6 +175,22 @@ def load_transformed_data(run: bool):
         return
     logger=get_run_logger()
     logger.info("Iniciando task load_transformed_data...")
+    for camada in ["bronze", "silver", "gold"]:
+        if os.path.exists('temp.duckdb'):
+            os.remove('temp.duckdb')
+        with duckdb.connect('temp.duckdb') as con:
+            con.execute("ATTACH 'local.duckdb' AS db_origem (READ_ONLY)")
+            con.execute(f"CREATE TABLE terceirizados_{camada} AS SELECT * FROM db_origem.terceirizados_{camada}")
+            s3 = boto3.client('s3', 
+                  region_name=AWS_REGION, 
+                  aws_access_key_id=AWS_ACCESS_KEY_ID,
+                  aws_secret_access_key=AWS_SECRET_ACCESS_KEY)
+            s3.upload_file("temp.duckdb", BUCKET_NAME, f"terceirizados/{camada}/terceirizados_{camada}.duckdb")
+        
+        logger.info(f"Tabela terceirizados_{camada} carregada com sucesso")
+
+    if os.path.exists('temp.duckdb'):
+            os.remove('temp.duckdb')
     logger.info("Task load_transformed_data finalizada com sucesso")
     return
 
@@ -191,5 +207,5 @@ def pipeline(tasks: List[Literal["Criar bucket", "Carregar dados brutos", "Rodar
                            ano_fim_carga=ano_fim_carga, mes_fim_carga=mes_fim_carga)
     dbt_result=dbt_run(run = "Rodar DBT" in tasks, wait_for=[new_data],
                        comando_dbt=comando_dbt)
-    duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in tasks, wait_for=[dbt_result])
+    duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in tasks and comando_dbt != "test", wait_for=[dbt_result])
     logger.info("Flow concluído com sucesso")
