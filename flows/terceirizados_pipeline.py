@@ -75,7 +75,7 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
         
         logger.info(f"Baixando arquivo de {year_month}:\n -Tipo do arquivo: {filetype}\n -Link: {link}")
         try:
-            with requests.get(link, stream=True) as r:
+            with requests.get(link, stream=True, timeout=60) as r:
                 r.raise_for_status()
                 with open("temp_data", "wb") as f:
                     for chunk in r.iter_content(chunk_size=8192):
@@ -83,7 +83,8 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
                             f.write(chunk)
             logger.info(f"Arquivo {link} baixado com sucesso")
         except Exception as e:
-            logger.warning(f"Falha ao tentar baixar o arquivo {link}: \n{e}")
+            logger.error(f"Falha ao tentar baixar o arquivo {link}: \n{e}")
+            raise
 
         logger.info(f"Enviando arquivo de {year_month} para bucket '{BUCKET_NAME}' na AWS S3")
         con = duckdb.connect(":memory:")
