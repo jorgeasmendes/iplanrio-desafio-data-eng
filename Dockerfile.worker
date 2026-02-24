@@ -5,7 +5,7 @@ WORKDIR /app
 COPY .env /app/.env
 COPY flows/ /app/flows/
 COPY dbt_pipeline/ /app/dbt_pipeline/
-COPY requirements.txt /app/requirements.txt
+COPY worker_requirements.txt /app/requirements.txt
 
 RUN pip install -r requirements.txt
 
