@@ -7,14 +7,80 @@ import os
 import boto3
 import duckdb
 from typing import List, Literal
+from pydantic import BaseModel, Field
 
+#VARIÁVEIS DE AMBIENTE
 AWS_ACCESS_KEY_ID=os.environ.get('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY=os.environ.get('AWS_SECRET_ACCESS_KEY')
 AWS_REGION=os.environ.get('AWS_REGION')
 BUCKET_NAME=os.environ.get('BUCKET_NAME')
 
-@task
+#PARÂMETROS DO FLOW
+class FlowParameters(BaseModel):
+    tasks: List[Literal[
+        "Criar bucket", 
+        "Carregar dados brutos", 
+        "Rodar DBT"]] = Field(
+            default=[
+            "Criar bucket", 
+            "Carregar dados brutos", 
+            "Rodar DBT"
+            ],
+            title="Tasks",
+            description="Etapas que devem ser executadas"
+    )
+
+    ano_inicio_carga: int = Field(
+        default=2019,
+        ge=2019,
+        title="Ano inicial",
+        description="Ano inicial de carga para dados novos (YYYY)"
+    )
+
+    mes_inicio_carga: Literal["01", "05", "09"] = Field(
+        default="01",
+        title="Mês inicial",
+        description="Mês inicial da carga para dados novos"
+    )
+
+    ano_fim_carga: int = Field(
+        default=2050,
+        ge=2019,
+        title="Ano final",
+        description="Ano final da carga para dados novos (YYYY)"
+    )
+
+    mes_fim_carga: Literal["01", "05", "09"] = Field(
+        default="01",
+        title="Mês final",
+        description="Mês final da carga para dados novos"
+    )
+
+    comando_dbt: Literal["build", "run", "test"] = Field(
+        default = "build",
+        title = "Comando DBT",
+        description = "Comando a ser executado no DBT"
+    )
+
+#TASKS E FLOW
+@task(
+        name="Criar Bucket S3", 
+        description="""
+        Verifica se o bucket S3 configurado já existe na conta AWS.
+        Caso não exista, realiza a criação.
+        """
+        )
 def create_bucket(run: bool):
+    """
+    Verifica se o bucket S3 configurado já existe na conta AWS.
+    Caso não exista, realiza a criação.
+
+    Parâmetros:
+        run (bool): Indica se a task deve ser executada.
+
+    Retorno:
+        None
+    """
     if not run:
         return
     logger=get_run_logger()
@@ -41,9 +107,33 @@ def create_bucket(run: bool):
     logger.info(f"Task create_bucket finalizada com sucesso")
     return
 
-@task
+@task(
+        name="Carregar Dados Brutos",
+        description="""
+        Carrega os dados brutos no bucket S3 com particionamento por mês de carga.
+        """)
 def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str, 
                     ano_fim_carga: str, mes_fim_carga: str):
+    """
+    Carrega os dados brutos no bucket S3 com particionamento por mês de carga.
+
+    Etapas:
+        1. Identifica arquivos disponíveis no site de fonte.
+        2. Filtra os arquivos conforme o período informado nos parâmetros.
+        3. Faz download do arquivo.
+        4. Lê com DuckDB.
+        5. Exporta para o bucket S3 no formato parquet, particionando por mês de carga. 
+
+    Parâmetros:
+        run (bool): Indica se a task deve ser executada.
+        ano_inicio_carga (str): Ano inicial da carga.
+        mes_inicio_carga (str): Mês inicial da carga.
+        ano_fim_carga (str): Ano final da carga.
+        mes_fim_carga (str): Mês final da carga.
+
+    Retorno:
+        None
+    """
     if not run:
         return
     logger=get_run_logger()
@@ -154,8 +244,22 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
     logger.info(f"Task load_raw_data finalizada com sucesso\nForam carregados dados dos meses: {new_data}")
     return
 
-@task
+@task(
+        name="Rodar DBT",
+        description="""
+        Executa comando DBT localmente, criando camadas bronze, silver e gold.
+        """)
 def dbt_run(run: bool, comando_dbt: str):
+    """
+    Executa comando DBT localmente, criando camadas bronze, silver e gold.
+
+    Parâmetros:
+        run (bool): Indica se a task deve ser executada.
+        comando_dbt (str): Comando DBT a ser executado (build, run ou test).
+
+    Retorno:
+        None
+    """
     if not run:
         return
     logger=get_run_logger()
@@ -169,8 +273,24 @@ def dbt_run(run: bool, comando_dbt: str):
     logger.info("Task dbt_run finalizada com sucesso")
     return
 
-@task
+@task(
+        name="Carregar Dados Transformados",
+        description="Carrega os dados transformados no bucket S3.")
 def load_transformed_data(run: bool):
+    """
+    Carrega os dados transformados no bucket S3.
+
+    Etapas:
+        1. Copia cada tabela do banco (camada do pipeline dbt) como um novo arquivo DuckDB.
+        2. Envia para S3 cada camada como bancos de dados indpendentes.
+        3. Dispara atualização da API via endpoint HTTP.
+
+    Parâmetros:
+        run (bool): Indica se a task deve ser executada.
+
+    Retorno:
+        None
+    """
     if not run:
         return
     logger=get_run_logger()
@@ -202,18 +322,39 @@ def load_transformed_data(run: bool):
     logger.info("Task load_transformed_data finalizada com sucesso")
     return
 
-@flow
-def pipeline(tasks: List[Literal["Criar bucket", "Carregar dados brutos", "Rodar DBT"]] = ["Criar bucket", "Carregar dados brutos", "Rodar DBT"],
-             ano_inicio_carga: str="2019", mes_inicio_carga: Literal["01", "05", "09"]="01", 
-             ano_fim_carga: str="2050", mes_fim_carga: Literal["01", "05", "09"]="01",
-             comando_dbt: Literal["build", "run", "test"]="build"   
-             ):
+@flow(
+    name="Pipeline terceirizados",
+    description="""
+    Pipeline responsável por:
+
+    1. Criar bucket S3 (caso necessário)
+    2. Carregar dados brutos no bucket
+    3. Executar transformações via DBT localmente
+    4. Carregar dados transformados no bucket
+    """
+)
+def pipeline(Parameters: FlowParameters = FlowParameters()):
+    """
+    Orquestra o pipeline completo de ingestão e transformação
+    de dados de terceirizados.
+
+    Parâmetros:
+        - tasks: Lista de etapas a serem executadas
+        - ano_inicio_carga: Ano inicial da carga
+        - mes_inicio_carga: Mês inicial da carga
+        - ano_fim_carga: Ano final da carga
+        - mes_fim_carga: Mês final da carga
+        - comando_dbt: Comando DBT a ser executado
+
+    Fluxo:
+        create_bucket → load_raw_data → dbt_run → load_transformed_data
+    """
     logger=get_run_logger()
-    bucket=create_bucket(run = "Criar bucket" in tasks)
-    new_data=load_raw_data(run = "Carregar dados brutos" in tasks, wait_for=[bucket],
-                           ano_inicio_carga=ano_inicio_carga, mes_inicio_carga=mes_inicio_carga,
-                           ano_fim_carga=ano_fim_carga, mes_fim_carga=mes_fim_carga)
-    dbt_result=dbt_run(run = "Rodar DBT" in tasks, wait_for=[new_data],
-                       comando_dbt=comando_dbt)
-    duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in tasks and comando_dbt != "test", wait_for=[dbt_result])
+    bucket=create_bucket(run = "Criar bucket" in Parameters.tasks)
+    new_data=load_raw_data(run = "Carregar dados brutos" in Parameters.tasks, wait_for=[bucket],
+                           ano_inicio_carga=str(Parameters.ano_inicio_carga), mes_inicio_carga=Parameters.mes_inicio_carga,
+                           ano_fim_carga=str(Parameters.ano_fim_carga), mes_fim_carga=Parameters.mes_fim_carga)
+    dbt_result=dbt_run(run = "Rodar DBT" in Parameters.tasks, wait_for=[new_data],
+                       comando_dbt=Parameters.comando_dbt)
+    duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in Parameters.tasks and Parameters.comando_dbt != "test", wait_for=[dbt_result])
     logger.info("Flow concluído com sucesso")
