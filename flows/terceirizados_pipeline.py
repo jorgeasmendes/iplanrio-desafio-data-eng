@@ -191,6 +191,14 @@ def load_transformed_data(run: bool):
 
     if os.path.exists('temp.duckdb'):
             os.remove('temp.duckdb')
+    try:
+        logger.info("Atualizando dados da api...")
+        response = requests.post("http://fast-api:8000/admin/refresh", timeout=60)
+        response.raise_for_status()
+        logger.info("Atualização da api executada com sucesso!")
+    except Exception as e:
+        logger.error(f"Erro ao chamar refresh da API: {e}")
+
     logger.info("Task load_transformed_data finalizada com sucesso")
     return
 
