@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Query, HTTPException
+from fastapi import FastAPI, Query, Path, HTTPException
 from fastapi.responses import RedirectResponse
 import boto3
 import asyncio
@@ -27,18 +27,45 @@ def load_data():
 
     os.replace(temp_file, DB_FILE)
 
+def create_empty_db():
+    con=duckdb.connect(DB_FILE)
+    con.close()
+
 @app.on_event("startup")
 async def startup_event():
-    await asyncio.to_thread(load_data)
+    try:
+        await asyncio.to_thread(load_data)
+    except Exception:
+        await asyncio.to_thread(create_empty_db)
 
 @app.post("/admin/refresh", 
           summary="Atualizar os dados",
-          description="Baixa novamente os dados da camada gold no bucket S3")
+          description="Baixa novamente os dados da camada gold no bucket S3",
+          responses={
+            500: {
+                  "description": "Erro ao baixar o arquivo do S3 ou substituir o banco local",
+                  "content": {
+                      "application/json": {
+                          "example": {
+                              "detail": "Erro ao atualizar base de dados"
+                          }
+                      }
+                  }
+              }
+          }
+      )
 async def refresh_data():
-    await asyncio.to_thread(load_data)
-    return {"status": "dados carregados"}
+    try:
+        await asyncio.to_thread(load_data)
+        return {"status": "dados carregados"}
+    except Exception:
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao atualizar base de dados"
+        )
 
-@app.get("/")
+@app.get("/", 
+         summary="Redirecionar para essa documentação")
 async def redirect_to_docs():
     return RedirectResponse(url="/redoc")
 
@@ -49,8 +76,29 @@ async def redirect_to_docs():
 
             - Ordenação: crescente por `id_terc`
             - Máximo de 200 registros por página
-            """)
-async def get_terceirizados(page_size: int = Query(50, le=200, description="Quantidade de registros por página (máx: 200)"), 
+            """,
+            responses={
+                404: {
+                    "description": "Nenhum registro encontrado para os parâmetros informados",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": "Nenhum registro encontrado para os parâmetros informados"}
+                        }
+                    }
+                },
+                422: {
+                    "description": "Erro de validação (ex: page_size maior que 200)",
+                },
+                500: {
+                    "description": "Erro interno ao acessar o banco de dados",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": "Erro interno ao acessar o banco de dados"}
+                        }
+                    }
+                }
+            })
+async def get_terceirizados(page_size: int = Query(50, ge=1, le=200, description="Quantidade de registros por página (máx: 200)"), 
                             page: int = Query(0, ge=0, description="Número da página (inicia em 0)")):
     def query():
         try:
@@ -74,21 +122,43 @@ async def get_terceirizados(page_size: int = Query(50, le=200, description="Quan
                 data = [dict(zip(columns, row)) for row in result] if result else []
 
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Erro ao acessar banco de dados: {e}")
+            raise HTTPException(status_code=500, detail=f"Erro interno ao acessar o banco de dados")
                 
         return total, data
         
     total, data = await asyncio.to_thread(query)
     if not data:
-        raise HTTPException(status_code=404, detail="Não foram encontrados registros")
+        raise HTTPException(status_code=404, detail="Nenhum registro encontrado para os parâmetros informados")
         
     return {"total_rows": total, "page_size": page_size, 
             "page": page, "total_pages": (total+page_size-1)//page_size, "data": data}
 
 @app.get("/terceirizados/{id}", 
           summary="Detalhes do terceirizado",
-          description="Mostra todos os dados referentes ao terceirizado com o id especificado")
-async def get_terceirizados_id(id: int):
+          description="Mostra todos os dados referentes ao terceirizado com o id especificado",
+            responses={
+                404: {
+                    "description": "Registro não encontrado para o ID informado",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": "Registro não encontrado para o ID informado"}
+                        }
+                    }
+                },
+                422: {
+                    "description": "Erro de validação (ex: ID inválido ou negativo)",
+                },
+                500: {
+                    "description": "Erro interno ao acessar o banco de dados",
+                    "content": {
+                        "application/json": {
+                            "example": {"detail": "Erro interno ao acessar o banco de dados"}
+                        }
+                    }
+                }
+            }
+        )
+async def get_terceirizados_id(id: int = Path(..., description="ID do terceirizado a ser consultado")):
     def query():
         try:
             with duckdb.connect(DB_FILE) as con:
@@ -147,12 +217,12 @@ async def get_terceirizados_id(id: int):
                 
                 data = dict(zip(columns, result))
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Erro ao acessar o banco: {e}")
+            raise HTTPException(status_code=500, detail=f"Erro interno ao acessar o banco de dados")
                 
         return data
         
     data = await asyncio.to_thread(query)
     if not data:
-        raise HTTPException(status_code=404, detail="Registro não encontrado")
+        raise HTTPException(status_code=404, detail="Registro não encontrado para o ID informado")
     
     return {"data": data}
