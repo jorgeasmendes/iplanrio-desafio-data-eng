@@ -8,6 +8,7 @@ import boto3
 import duckdb
 from typing import List, Literal
 from pydantic import BaseModel, Field
+import time
 
 #VARIÁVEIS DE AMBIENTE
 AWS_ACCESS_KEY_ID=os.environ.get('AWS_ACCESS_KEY_ID')
@@ -154,17 +155,25 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
         year_month=file[2][:4] + '-' + file[2][4:]
         
         logger.info(f"Baixando arquivo de {year_month}:\n -Tipo do arquivo: {filetype}\n -Link: {link}")
-        try:
-            with requests.get(link, stream=True, timeout=60) as r:
-                r.raise_for_status()
-                with open("temp_data", "wb") as f:
-                    for chunk in r.iter_content(chunk_size=8192):
-                        if chunk:
-                            f.write(chunk)
-            logger.info(f"Arquivo {link} baixado com sucesso")
-        except Exception as e:
-            logger.error(f"Falha ao tentar baixar o arquivo {link}: \n{e}")
-            raise
+        retry=0
+        while retry<5:
+            try:
+                with requests.get(link, stream=True, timeout=60) as r:
+                    r.raise_for_status()
+                    with open("temp_data", "wb") as f:
+                        for chunk in r.iter_content(chunk_size=8192):
+                            if chunk:
+                                f.write(chunk)
+                logger.info(f"Arquivo {link} baixado com sucesso")
+                break
+            except Exception as e:
+                if retry==4:
+                    logger.error(f"Todas as tentativas falharam")
+                    raise
+                else:
+                    logger.warning(f"Falha ao tentar baixar o arquivo {link}: \n{e}\nTentando novamente...")
+                    retry+=1 
+                    time.sleep(3)
 
         logger.info(f"Enviando arquivo de {year_month} para bucket '{BUCKET_NAME}' na AWS S3")
         con = duckdb.connect(":memory:")

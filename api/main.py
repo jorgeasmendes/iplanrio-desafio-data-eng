@@ -146,19 +146,21 @@ async def get_terceirizados(page_size: int = Query(50, ge=1, le=200, description
             with duckdb.connect(DB_FILE) as con:
                 total = con.sql("SELECT COUNT(*) FROM terceirizados_gold").fetchone()[0]
                 result = con.sql("""SELECT 
-                                    id_terc, 
-                                    sg_orgao_sup_tabela_ug,
-                                    nr_cnpj, 
-                                    nr_cpf
+                                    id_terceirizado, 
+                                    terceirizado_cpf,
+                                    orgao_superior_sigla,
+                                    empresa_cnpj
                                     FROM terceirizados_gold
-                                    ORDER BY id_terc ASC
+                                    ORDER BY id_terceirizado ASC
                                     LIMIT ? OFFSET ?""",
                                     params=[page_size, page * page_size]).fetchall()
                 
-                columns = ["id_terc", 
-                            "sg_orgao_sup_tabela_ug",
-                            "nr_cnpj", 
-                            "nr_cpf"]
+                columns = [
+                    "id_terceirizado",
+                    "terceirizado_cpf",
+                    "orgao_superior_sigla",
+                    "empresa_cnpj"
+                ]
                 
                 data = [dict(zip(columns, row)) for row in result] if result else []
 
@@ -208,7 +210,7 @@ async def get_terceirizados_id(id: int = Path(..., description="ID do terceiriza
 
     Retorno:
         dict: Contém o campo:
-            - data (dict): Dicionário com todos os campos do terceirizado.
+            - data (dict): Dicionário com todos os campos referentes ao terceirizado e sua contratação.
 
     Exceções:
         HTTPException 404: Registro não encontrado para o ID informado.
@@ -219,57 +221,57 @@ async def get_terceirizados_id(id: int = Path(..., description="ID do terceiriza
         try:
             with duckdb.connect(DB_FILE) as con:
                 result = con.sql("""SELECT 
-                                    id_terc,
-                                    sg_orgao_sup_tabela_ug,
-                                    cd_ug_gestora,
-                                    nm_ug_tabela_ug,
-                                    sg_ug_gestora,
-                                    nr_contrato,
-                                    nr_cnpj,
-                                    nm_razao_social,
-                                    nr_cpf,
-                                    nm_terceirizado,
-                                    nm_categoria_profissional,
-                                    nm_escolaridade,
-                                    nr_jornada,
-                                    nm_unidade_prestacao,
-                                    vl_mensal_salario,
-                                    vl_mensal_custo,
-                                    sg_orgao,
-                                    nm_orgao,
-                                    cd_orgao_siafi,
-                                    cd_orgao_siape,
+                                    id_terceirizado,
+                                    terceirizado_cpf,
+                                    terceirizado_nome,
+                                    terceirizado_categoria_profissional,
+                                    terceirizado_escolaridade,
+                                    terceirizado_salario,
+                                    terceirizado_custo,
+                                    jornada_horas,
+                                    empresa_cnpj,
+                                    empresa_razao_social,
+                                    contrato_numero,
+                                    orgao_superior_sigla,
+                                    unidade_gestora_sigla,
+                                    unidade_gestora_nome,
+                                    unidade_gestora_codigo,
+                                    orgao_sigla,
+                                    orgao_nome,
+                                    orgao_codigo_siafi,
+                                    orgao_codigo_siape,
+                                    unidade_prestacao_nome,
                                     mes_carga
                                     FROM terceirizados_gold
-                                    WHERE id_terc = ?
+                                    WHERE id_terceirizado = ?
                                     """,
                                     params=[id]).fetchone()
                 if not result:
                     return None
                 
                 columns = [
-                    "id_terc",
-                    "sg_orgao_sup_tabela_ug",
-                    "cd_ug_gestora",
-                    "nm_ug_tabela_ug",
-                    "sg_ug_gestora",
-                    "nr_contrato",
-                    "nr_cnpj",
-                    "nm_razao_social",
-                    "nr_cpf",
-                    "nm_terceirizado",
-                    "nm_categoria_profissional",
-                    "nm_escolaridade",
-                    "nr_jornada",
-                    "nm_unidade_prestacao",
-                    "vl_mensal_salario",
-                    "vl_mensal_custo",
-                    "sg_orgao",
-                    "nm_orgao",
-                    "cd_orgao_siafi",
-                    "cd_orgao_siape",
+                    "id_terceirizado",
+                    "terceirizado_cpf",
+                    "terceirizado_nome",
+                    "terceirizado_categoria_profissional",
+                    "terceirizado_escolaridade",
+                    "terceirizado_salario",
+                    "terceirizado_custo",
+                    "jornada_horas",
+                    "empresa_cnpj",
+                    "empresa_razao_social",
+                    "contrato_numero",
+                    "orgao_superior_sigla",
+                    "unidade_gestora_sigla",
+                    "unidade_gestora_nome",
+                    "unidade_gestora_codigo",
+                    "orgao_sigla",
+                    "orgao_nome",
+                    "orgao_codigo_siafi",
+                    "orgao_codigo_siape",
+                    "unidade_prestacao_nome",
                     "mes_carga"
-                    ]
+                ]
                 
                 data = dict(zip(columns, result))
         except Exception as e:

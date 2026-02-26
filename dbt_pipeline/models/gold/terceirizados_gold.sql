@@ -1,31 +1,31 @@
 {{ config(
     post_hook=[
-        "CREATE INDEX IF NOT EXISTS idx_id_terc ON {{ this }} (id_terc);
+        "CREATE INDEX IF NOT EXISTS idx_id_terceirizado ON {{ this }} (id_terceirizado);
         CREATE INDEX IF NOT EXISTS idx_mes_carga ON {{ this }} (mes_carga)"
     ]
 ) }}
 
 SELECT
-    id_terc,
-    COALESCE(sg_orgao_sup_tabela_ug, 'Não informado') AS sg_orgao_sup_tabela_ug,
-    COALESCE(cd_ug_gestora, 'Não informado') AS cd_ug_gestora,
-    COALESCE(nm_ug_tabela_ug, 'Não informado') AS nm_ug_tabela_ug,
-    COALESCE(sg_ug_gestora, 'Não informado') AS sg_ug_gestora,
-    COALESCE(nr_contrato, 'Não informado') AS nr_contrato,
-    COALESCE(nr_cnpj, 'Não informado') AS nr_cnpj,
-    COALESCE(nm_razao_social, 'Não informado') AS nm_razao_social,
-    COALESCE(nr_cpf, 'Não informado') AS nr_cpf,
-    COALESCE(nm_terceirizado, 'Não informado') AS nm_terceirizado,
-    COALESCE(nm_categoria_profissional, 'Não informado') AS nm_categoria_profissional,
-    COALESCE(nm_escolaridade, 'Não informado') AS nm_escolaridade,
-    nr_jornada,
-    COALESCE(nm_unidade_prestacao, 'Não informado') AS nm_unidade_prestacao,
-    vl_mensal_salario,
-    vl_mensal_custo,
-    COALESCE(sg_orgao, 'Não informado') AS sg_orgao,
-    COALESCE(nm_orgao, 'Não informado') AS nm_orgao,
-    COALESCE(cd_orgao_siafi, 'Não informado') AS cd_orgao_siafi,
-    COALESCE(cd_orgao_siape, 'Não informado') AS cd_orgao_siape,
+    id_terceirizado,
+    COALESCE(terceirizado_cpf, 'Não informado') AS terceirizado_cpf,
+    COALESCE(terceirizado_nome, 'Não informado') AS terceirizado_nome,
+    COALESCE(terceirizado_categoria_profissional, 'Não informado') AS terceirizado_categoria_profissional,
+    COALESCE(terceirizado_escolaridade, 'Não informado') AS terceirizado_escolaridade,
+    terceirizado_salario,
+    terceirizado_custo,
+    jornada_horas,
+    COALESCE(empresa_cnpj, 'Não informado') AS empresa_cnpj,
+    COALESCE(empresa_razao_social, 'Não informado') AS empresa_razao_social,
+    COALESCE(contrato_numero, 'Não informado') AS contrato_numero,
+    COALESCE(orgao_superior_sigla, 'Não informado') AS orgao_superior_sigla,
+    COALESCE(unidade_gestora_sigla, 'Não informado') AS unidade_gestora_sigla,
+    COALESCE(unidade_gestora_nome, 'Não informado') AS unidade_gestora_nome,
+    COALESCE(unidade_gestora_codigo, 'Não informado') AS unidade_gestora_codigo,
+    COALESCE(orgao_sigla, 'Não informado') AS orgao_sigla,
+    COALESCE(orgao_nome, 'Não informado') AS orgao_nome,
+    COALESCE(orgao_codigo_siafi, 'Não informado') AS orgao_codigo_siafi,
+    COALESCE(orgao_codigo_siape, 'Não informado') AS orgao_codigo_siape,
+    COALESCE(unidade_prestacao_nome, 'Não informado') AS unidade_prestacao_nome,
     COALESCE(mes_carga_tabela, mes_referencia) AS mes_carga
     
 FROM {{ ref('terceirizados_silver') }}
