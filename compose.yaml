@@ -21,6 +21,8 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     container_name: prefect-worker
+    volumes:
+      - dbt_docs:/app/dbt_pipeline/target
     depends_on:
       prefect-server:
         condition: service_healthy
@@ -33,10 +35,20 @@ services:
       prefect work-pool create pipeline-pool --type process || true &&
       sleep 3 &&
       prefect --no-prompt deploy flows/terceirizados_pipeline.py:pipeline -n pipeline-terceirizados --pool pipeline-pool &&
+      cd /app/dbt_pipeline &&
+      dbt docs generate &&
       prefect worker start --pool pipeline-pool
       "
     networks:
       - prefect-net
+
+  dbt-docs:
+    image: nginx:alpine
+    container_name: dbt-docs
+    volumes:
+      - dbt_docs:/usr/share/nginx/html:ro
+    ports:
+      - "4000:80"
 
   fast-api:
     build:
@@ -54,3 +66,6 @@ services:
 networks:
   prefect-net:
     driver: bridge
+
+volumes:
+  dbt_docs:
