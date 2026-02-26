@@ -63,13 +63,7 @@ class FlowParameters(BaseModel):
     )
 
 #TASKS E FLOW
-@task(
-        name="Criar Bucket S3", 
-        description="""
-        Verifica se o bucket S3 configurado já existe na conta AWS.
-        Caso não exista, realiza a criação.
-        """
-        )
+@task(name="Criar Bucket S3")
 def create_bucket(run: bool):
     """
     Verifica se o bucket S3 configurado já existe na conta AWS.
@@ -107,11 +101,7 @@ def create_bucket(run: bool):
     logger.info(f"Task create_bucket finalizada com sucesso")
     return
 
-@task(
-        name="Carregar Dados Brutos",
-        description="""
-        Carrega os dados brutos no bucket S3 com particionamento por mês de carga.
-        """)
+@task(name="Carregar Dados Brutos")
 def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str, 
                     ano_fim_carga: str, mes_fim_carga: str):
     """
@@ -244,11 +234,7 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
     logger.info(f"Task load_raw_data finalizada com sucesso\nForam carregados dados dos meses: {new_data}")
     return
 
-@task(
-        name="Rodar DBT",
-        description="""
-        Executa comando DBT localmente, criando camadas bronze, silver e gold.
-        """)
+@task(name="Rodar DBT")
 def dbt_run(run: bool, comando_dbt: str):
     """
     Executa comando DBT localmente, criando camadas bronze, silver e gold.
@@ -273,9 +259,7 @@ def dbt_run(run: bool, comando_dbt: str):
     logger.info("Task dbt_run finalizada com sucesso")
     return
 
-@task(
-        name="Carregar Dados Transformados",
-        description="Carrega os dados transformados no bucket S3.")
+@task(name="Carregar Dados Transformados")
 def load_transformed_data(run: bool):
     """
     Carrega os dados transformados no bucket S3.
@@ -350,11 +334,11 @@ def pipeline(Parameters: FlowParameters = FlowParameters()):
         create_bucket → load_raw_data → dbt_run → load_transformed_data
     """
     logger=get_run_logger()
-    bucket=create_bucket(run = "Criar bucket" in Parameters.tasks)
-    new_data=load_raw_data(run = "Carregar dados brutos" in Parameters.tasks, wait_for=[bucket],
+    bucket=create_bucket.submit(run = "Criar bucket" in Parameters.tasks)
+    new_data=load_raw_data.submit(run = "Carregar dados brutos" in Parameters.tasks, wait_for=[bucket],
                            ano_inicio_carga=str(Parameters.ano_inicio_carga), mes_inicio_carga=Parameters.mes_inicio_carga,
                            ano_fim_carga=str(Parameters.ano_fim_carga), mes_fim_carga=Parameters.mes_fim_carga)
-    dbt_result=dbt_run(run = "Rodar DBT" in Parameters.tasks, wait_for=[new_data],
+    dbt_result=dbt_run.submit(run = "Rodar DBT" in Parameters.tasks, wait_for=[new_data],
                        comando_dbt=Parameters.comando_dbt)
     duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in Parameters.tasks and Parameters.comando_dbt != "test", wait_for=[dbt_result])
     logger.info("Flow concluído com sucesso")
