@@ -17,20 +17,7 @@ AWS_REGION=os.environ.get('AWS_REGION')
 BUCKET_NAME=os.environ.get('BUCKET_NAME')
 
 #PARÂMETROS DO FLOW
-class FlowParameters(BaseModel):
-    tasks: List[Literal[
-        "Criar bucket", 
-        "Carregar dados brutos", 
-        "Rodar DBT"]] = Field(
-            default=[
-            "Criar bucket", 
-            "Carregar dados brutos", 
-            "Rodar DBT"
-            ],
-            title="Tasks",
-            description="Etapas que devem ser executadas"
-    )
-
+class ManualLoadParameters(BaseModel):
     ano_inicio_carga: int = Field(
         default=2019,
         ge=2019,
@@ -55,6 +42,26 @@ class FlowParameters(BaseModel):
         default="01",
         title="Mês final",
         description="Mês final da carga para dados novos"
+    )
+
+class FlowParameters(BaseModel):
+    tasks: List[Literal[
+        "Criar bucket", 
+        "Carregar dados brutos", 
+        "Rodar DBT"]] = Field(
+            default=[
+            "Criar bucket", 
+            "Carregar dados brutos", 
+            "Rodar DBT"
+            ],
+            title="Tasks",
+            description="Etapas que devem ser executadas"
+    )
+
+    busca_automatica_dados_novos: bool = Field(
+        default = True,
+        title = "Carregar automaticamente apenas dados novos",
+        description = "Carregar automaticamente apenas dados posteriores à última data de carga (mes_referencia) já carregados"
     )
 
     comando_dbt: Literal["build", "run", "test"] = Field(
@@ -103,7 +110,7 @@ def create_bucket(run: bool):
     return
 
 @task(name="Carregar Dados Brutos")
-def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str, 
+def load_raw_data(run: bool, busca_automatica_dados_novos: bool, ano_inicio_carga: str, mes_inicio_carga: str, 
                     ano_fim_carga: str, mes_fim_carga: str):
     """
     Carrega os dados brutos no bucket S3 com particionamento por mês de carga.
@@ -127,38 +134,72 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
     """
     if not run:
         return
+    #Variáveis
     logger=get_run_logger()
     logger.info("Iniciando task load_raw_data...")
     encodings = ["utf-8", "latin-1", "utf-16"]
     new_data=[]
-        
+    
+    #Pesquisa de arquivos no site
     logger.info("Pesquisando os arquivos disponíveis para carga...")
     url_base_dados="https://www.gov.br/cgu/pt-br/acesso-a-informacao/dados-abertos/arquivos/terceirizados"
     response = requests.get(url_base_dados)
     files=re.findall(rf'href=["\']?({url_base_dados}/arquivos/[^\s"\'>]+\.(csv|xlsx))["\']?', response.text)
 
+    #Pegar último mês de carga caso use busca automática de novos dados
+    if busca_automatica_dados_novos:
+        try:
+            with duckdb.connect() as con:
+                con.execute("INSTALL httpfs; LOAD httpfs;")
+                con.execute(f"""
+                    SET s3_region='{AWS_REGION}';
+                    SET s3_access_key_id='{AWS_ACCESS_KEY_ID}';
+                    SET s3_secret_access_key='{AWS_SECRET_ACCESS_KEY}';
+                    """)
+                max_month_result=con.sql(f"SELECT MAX(mes_referencia) FROM 's3://{BUCKET_NAME}/terceirizados/raw/*/*.parquet'").fetchone()
+                if max_month_result and max_month_result[0]:
+                    max_month = max_month_result[0]
+                    year = max_month.year
+                    month = max_month.month
+                    init_month = int(f"{year}{month:02d}") + 1
+                else:
+                    init_month = 201901
+
+                end_month=300000
+        except Exception as e:
+            logger.error(f"Erro de conexão com o banco: {e}")
+            raise
+    #Usar filtros manuais de data se busca automática não for true
+    else:
+        init_month=int(ano_inicio_carga+mes_inicio_carga)
+        end_month=int(ano_fim_carga+mes_fim_carga)
+
+    #Listar links filtrados a serem baixados em ordem crescente de data
     filtered_files=[]
     for file in files:
         yearmonth=file[0].replace('maio', '202505').replace('setembro', '202509')
-        file=(file[0], file[1], re.search(r'\d{6}', yearmonth).group())
-        init_month=int(ano_inicio_carga+mes_inicio_carga)
-        end_month=int(ano_fim_carga+mes_fim_carga)
+        file=(file[0], file[1], re.search(r'\d{6}', yearmonth).group())        
         if int(file[2])>=init_month and int(file[2])<=end_month:
             filtered_files.append(file)
+
     filtered_files = sorted(filtered_files, key=lambda x: int(x[2]))
+    numero_arquivos=len(filtered_files)
+    logger.info(f"{numero_arquivos} arquivos encontrados")
+    if numero_arquivos==0:
+        logger.info(f"Não há arquivos para carregar. Encerrando task")
+        return
 
-    logger.info(f"{len(filtered_files)} arquivos encontrados")
-
+    #Baixar, ler e subir cada arquivo para S3
     for file in filtered_files:
         link=file[0]
         filetype=file[1]
         year_month=file[2][:4] + '-' + file[2][4:]
         
         logger.info(f"Baixando arquivo de {year_month}:\n -Tipo do arquivo: {filetype}\n -Link: {link}")
-        retry=0
-        while retry<5:
+        retry=1
+        while retry<=5:
             try:
-                with requests.get(link, stream=True, timeout=60) as r:
+                with requests.get(link, stream=True, timeout=120) as r:
                     r.raise_for_status()
                     with open("temp_data", "wb") as f:
                         for chunk in r.iter_content(chunk_size=8192):
@@ -167,12 +208,12 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
                 logger.info(f"Arquivo {link} baixado com sucesso")
                 break
             except Exception as e:
-                if retry==4:
+                if retry==5:
                     logger.error(f"Todas as tentativas falharam")
                     raise
                 else:
-                    logger.warning(f"Falha ao tentar baixar o arquivo {link}: \n{e}\nTentando novamente...")
                     retry+=1 
+                    logger.warning(f"Falha ao tentar baixar o arquivo {link}: \n{e}\nTentando novamente ({retry} de 5)...")
                     time.sleep(3)
 
         logger.info(f"Enviando arquivo de {year_month} para bucket '{BUCKET_NAME}' na AWS S3")
@@ -180,6 +221,11 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
         if filetype=="xlsx":
             con.execute("INSTALL excel; LOAD excel;")
         con.execute("INSTALL httpfs; LOAD httpfs;") 
+        con.execute(f"""
+            SET s3_region='{AWS_REGION}';
+            SET s3_access_key_id='{AWS_ACCESS_KEY_ID}';
+            SET s3_secret_access_key='{AWS_SECRET_ACCESS_KEY}';
+            """)
         con.sql(f"""
                     CREATE TABLE new_data (                             
                         id_terc VARCHAR,
@@ -208,6 +254,7 @@ def load_raw_data(run: bool, ano_inicio_carga: str, mes_inicio_carga: str,
                         mes_referencia DATE
                         );
                         """)
+        #Tentar diferentes encodings antes de falha para lidar com arquivos csv com encodings diferentes (encontrados utf-8 e latin-1)
         last_error=None
         for encoding in encodings:
             csv_extra_option = f", quote='\"', encoding='{encoding}'" if filetype=="csv" else ""
@@ -326,7 +373,7 @@ def load_transformed_data(run: bool):
     4. Carregar dados transformados no bucket
     """
 )
-def pipeline(Parameters: FlowParameters = FlowParameters()):
+def pipeline(Geral: FlowParameters = FlowParameters(), Carga_Manual: ManualLoadParameters = ManualLoadParameters()):
     """
     Orquestra o pipeline completo de ingestão e transformação
     de dados de terceirizados.
@@ -343,11 +390,12 @@ def pipeline(Parameters: FlowParameters = FlowParameters()):
         create_bucket → load_raw_data → dbt_run → load_transformed_data
     """
     logger=get_run_logger()
-    bucket=create_bucket.submit(run = "Criar bucket" in Parameters.tasks)
-    new_data=load_raw_data.submit(run = "Carregar dados brutos" in Parameters.tasks, wait_for=[bucket],
-                           ano_inicio_carga=str(Parameters.ano_inicio_carga), mes_inicio_carga=Parameters.mes_inicio_carga,
-                           ano_fim_carga=str(Parameters.ano_fim_carga), mes_fim_carga=Parameters.mes_fim_carga)
-    dbt_result=dbt_run.submit(run = "Rodar DBT" in Parameters.tasks, wait_for=[new_data],
-                       comando_dbt=Parameters.comando_dbt)
-    duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in Parameters.tasks and Parameters.comando_dbt != "test", wait_for=[dbt_result])
+    bucket=create_bucket.submit(run = "Criar bucket" in Geral.tasks)
+    new_data=load_raw_data.submit(run = "Carregar dados brutos" in Geral.tasks, wait_for=[bucket],
+                           busca_automatica_dados_novos=Geral.busca_automatica_dados_novos,
+                           ano_inicio_carga=str(Carga_Manual.ano_inicio_carga), mes_inicio_carga=Carga_Manual.mes_inicio_carga,
+                           ano_fim_carga=str(Carga_Manual.ano_fim_carga), mes_fim_carga=Carga_Manual.mes_fim_carga)
+    dbt_result=dbt_run.submit(run = "Rodar DBT" in Geral.tasks, wait_for=[new_data],
+                       comando_dbt=Geral.comando_dbt)
+    duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in Geral.tasks and Geral.comando_dbt != "test", wait_for=[dbt_result])
     logger.info("Flow concluído com sucesso")
