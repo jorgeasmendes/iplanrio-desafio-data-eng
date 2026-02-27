@@ -148,6 +148,7 @@ def load_raw_data(run: bool, busca_automatica_dados_novos: bool, ano_inicio_carg
 
     #Pegar último mês de carga caso use busca automática de novos dados
     if busca_automatica_dados_novos:
+        end_month=300000
         try:
             with duckdb.connect() as con:
                 con.execute("INSTALL httpfs; LOAD httpfs;")
@@ -165,10 +166,10 @@ def load_raw_data(run: bool, busca_automatica_dados_novos: bool, ano_inicio_carg
                 else:
                     init_month = 201901
 
-                end_month=300000
         except Exception as e:
-            logger.error(f"Erro de conexão com o banco: {e}")
-            raise
+            logger.warning(f"Erro de conexão com o banco na busca da última atualização: {e}\nBaixando todos os dados...")
+            init_month = 201901
+
     #Usar filtros manuais de data se busca automática não for true
     else:
         init_month=int(ano_inicio_carga+mes_inicio_carga)
