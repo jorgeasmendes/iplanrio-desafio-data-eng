@@ -389,7 +389,6 @@ def pipeline(Geral: FlowParameters = FlowParameters(), Carga_Manual: ManualLoadP
     Fluxo:
         create_bucket → load_raw_data → dbt_run → load_transformed_data
     """
-    logger=get_run_logger()
     bucket=create_bucket.submit(run = "Criar bucket" in Geral.tasks)
     new_data=load_raw_data.submit(run = "Carregar dados brutos" in Geral.tasks, wait_for=[bucket],
                            busca_automatica_dados_novos=Geral.busca_automatica_dados_novos,
@@ -398,4 +397,3 @@ def pipeline(Geral: FlowParameters = FlowParameters(), Carga_Manual: ManualLoadP
     dbt_result=dbt_run.submit(run = "Rodar DBT" in Geral.tasks, wait_for=[new_data],
                        comando_dbt=Geral.comando_dbt)
     duckdb_uploaded=load_transformed_data(run = "Rodar DBT" in Geral.tasks and Geral.comando_dbt != "test", wait_for=[dbt_result])
-    logger.info("Flow concluído com sucesso")
